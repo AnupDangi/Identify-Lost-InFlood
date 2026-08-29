@@ -1,6 +1,8 @@
 .env
 node_modules/
 dist/
+__pycache__/
+*.pyc
 
 # Sensitive scraped data (missing-person / unidentified-body PII & photos) - never commit
 data/

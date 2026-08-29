@@ -59,10 +59,23 @@ def band_score(diff: Optional[float], bands: list[tuple[float, float]]) -> float
 
 
 def sex_score(am: dict, pm: dict) -> float:
-    a, p = (am.get("sex") or "").lower(), (pm.get("sex") or "").lower()
-    if not a or not p:
+    """Blends the scraped metadata sex with the InsightFace-detected sex
+    (when a record dict carries a "detected_sex" key, as search_candidates.py
+    merges in from the embeddings index). Each available signal contributes
+    equally; two records that agree on metadata but whose photos read as
+    different sexes score lower than a metadata-only match would, and vice
+    versa -- a soft cross-check, not a hard filter, per the "don't hard-filter
+    demographics" rule."""
+    signals = []
+    a_meta, p_meta = (am.get("sex") or "").lower(), (pm.get("sex") or "").lower()
+    if a_meta and p_meta:
+        signals.append(1.0 if a_meta == p_meta else 0.0)
+    a_det, p_det = (am.get("detected_sex") or "").lower(), (pm.get("detected_sex") or "").lower()
+    if a_det and p_det:
+        signals.append(1.0 if a_det == p_det else 0.0)
+    if not signals:
         return 0.5
-    return 1.0 if a == p else 0.0
+    return sum(signals) / len(signals)
 
 
 def age_score(am: dict, pm: dict) -> float:

@@ -102,7 +102,8 @@ def main():
             name = ""  # "unidentified" is not a name
 
         sex_raw = details.get("लिङ्ग", "").strip().lower()
-        sex = {"पुरुष": "male", "महिला": "female", "male": "male", "female": "female"}.get(sex_raw, sex_raw)
+        sex = {"पुरुष": "male", "महिला": "female", "अन्य": "other",
+               "male": "male", "female": "female"}.get(sex_raw, sex_raw)
 
         ages = all_numbers(details.get("उमेर", ""))
         est_ages = all_numbers(details.get("अन्दाजी उमेर", ""))

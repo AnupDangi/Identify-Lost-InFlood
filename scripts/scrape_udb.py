@@ -235,7 +235,12 @@ def extract_sections(soup: BeautifulSoup) -> dict[str, dict[str, str]]:
             continue
         fields: dict[str, str] = {}
         for strong in card.find_all("strong"):
-            label = clean(strong.get_text()).rstrip(":")
+            # Some labels in the source markup have a space before the colon
+            # ("प्रदेश :"), which rstrip(":") alone leaves behind as a
+            # trailing space -- silently breaking every find_first() lookup
+            # for that label (this is why AM's `location` column ended up
+            # blank for the entire dataset; see ARCHITECTURE.md).
+            label = clean(strong.get_text()).rstrip(":").strip()
             if not label:
                 continue
             span = strong.find_next_sibling("span")

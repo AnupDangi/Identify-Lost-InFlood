@@ -5,8 +5,20 @@ matches ante-mortem (missing person) records against post-mortem (unidentified b
 records scraped from the Nepal Police Unidentified/Missing Person Database (UDB), using
 face embeddings + metadata compatibility to produce a **shortlist for human review** —
 never an automated identification. See [`docs/project_requirement.md`](docs/project_requirement.md)
-for the full design rationale and [`ARCHITECTURE.md`](ARCHITECTURE.md) for how the pieces
-fit together.
+for the full design rationale, [`ARCHITECTURE.md`](ARCHITECTURE.md) for how the pieces
+fit together, and [`OVERVIEW.md`](OVERVIEW.md) for a plain-language walkthrough of what
+it does, current results, and where this could go as an institutional/government tool.
+
+## Data sources
+
+- **Missing persons**: https://udb.nepalpolice.gov.np/missing
+- **Unidentified bodies**: https://udb.nepalpolice.gov.np/dead-bodies-lists
+
+Both are public listings on the Nepal Police Unidentified/Missing Person Database (UDB).
+`scripts/scrape_udb.py` scrapes them directly (paginated, resumable); records/photos are
+normalized into `data/manifests/{am,pm}_persons.csv` per the schema in
+`docs/project_requirement.md`. See **Data handling** below before scraping at any scale
+beyond a small research sample.
 
 > **This tool never returns an "identity" or a "confidence %" claim.** Final identification
 > must go through fingerprint, dental, or DNA evidence — see section 15 of the project
@@ -41,6 +53,10 @@ uv run python3 scripts/scrape_udb.py --record-type both --concurrency 6
 # 1b. If you have an ad-hoc list-page scrape instead of scrape_udb.py's output
 #     (e.g. dead_bodies_dataset.csv), normalize it into the same schema:
 uv run python3 scripts/import_pm_from_list_scrape.py
+
+# 1c. If AM's `location` column comes back blank (a label-parsing bug fixed
+#     in scrape_udb.py, backfillable from the raw JSON without re-scraping):
+uv run python3 scripts/backfill_am_location.py
 
 # 2. Face detection + quality gate + ArcFace embeddings (+ gender cross-check)
 uv run python3 scripts/build_embeddings.py --record-type am
@@ -80,6 +96,8 @@ scripts/
                                   for the site's incomplete cert chain, resumable)
   import_pm_from_list_scrape.py  Normalizes an ad-hoc list-page scrape into the
                                   AM/PM manifest schema
+  backfill_am_location.py        Re-parses already-saved raw JSON to fix AM's
+                                  `location` column (label-parsing bug, no re-scrape)
   build_embeddings.py            InsightFace (buffalo_l) face detection, quality
                                   gate, ArcFace embeddings, gender cross-check
   build_index.py                 FAISS IndexFlatIP over usable embeddings
@@ -96,10 +114,16 @@ data/                            Gitignored: scraped images, manifests, embeddin
 
 ## Status
 
-- AM (missing persons): ~9,290 records scraped nationwide, face embeddings built.
-- PM (unidentified bodies): ~1,960 records scraped, 376 tagged to the Rasuwa disaster
-  specifically, face embeddings built.
+- AM (missing persons): 9,290 records scraped nationwide, 6,108 usable face embeddings
+  (65.7%).
+- PM (unidentified bodies): 1,960 records scraped, 376 tagged to the Rasuwa disaster
+  specifically, 857 usable face embeddings (43.7%).
+- 17,140 candidate rows produced (top-20 AM matches per usable PM record); 10.1% flagged
+  `sex_conflict` (metadata sex agrees but the photo's detected sex doesn't, or vice versa).
 - Face detection succeeds on a minority of PM photos (post-mortem/disaster images are
   harder to enroll) — this is expected and reported per-record via `has_face`/
   `failure_reason` rather than forced through matching, per the "inconclusive is a valid
   result" principle in the design doc.
+
+Full breakdown, what these numbers mean, and where this could go next: see
+[`OVERVIEW.md`](OVERVIEW.md).

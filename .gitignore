@@ -3,8 +3,23 @@ node_modules/
 dist/
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
 
 # Sensitive scraped data (missing-person / unidentified-body PII & photos) - never commit
 data/
+*.index
+*.faiss
+*.npy
+reviews.csv
 
-
+# Demo screenshots: only synthetic/redacted examples belong in git. Anything
+# containing a real scraped AM/PM photo (missing person or deceased individual)
+# must never be committed -- see docs/PRIVACY_CLEANUP.md.
+demo/private/
+demo/real/
+demo/raw/
+demo/images/

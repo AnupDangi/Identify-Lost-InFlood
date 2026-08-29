@@ -90,8 +90,18 @@ log to `data/manifests/reviews.csv`. Unidentified-body photos are blurred by def
 
 ### Demo
 
-![Dead Bodies tab, candidate view](demo/images/image1.png)
-![Dead Bodies tab, another record's candidates](demo/images/image2.png)
+Screenshots are not checked into this repository: the review UI's "Dead Bodies" tab
+renders real, identifiable photographs of deceased individuals scraped from the Nepal
+Police UDB, and committing a screenshot of it would publish that PII. Two prior demo
+screenshots were tracked in git history and have been removed from the working tree —
+see [`docs/PRIVACY_CLEANUP.md`](docs/PRIVACY_CLEANUP.md) for what that means for the
+repo's history and how to purge it if required.
+
+To see the UI yourself, run the pipeline locally (below) and open
+`http://localhost:8001/`. If you want a screenshot in this README, generate one against
+synthetic/placeholder records only and place it under `demo/` (paths under
+`demo/images/`, `demo/private/`, `demo/real/`, `demo/raw/` are gitignored so a mistake
+here does not get committed).
 
 
 ## Repository layout

@@ -31,10 +31,13 @@ from __future__ import annotations
 import csv
 import hashlib
 import re
+import sys
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from dvi.dates import normalize_date
 
 ROOT = Path(__file__).resolve().parent.parent
 PM_DIR = ROOT / "data" / "raw" / "images" / "pm"
@@ -60,7 +63,7 @@ def parse_details(details: str) -> dict[str, str]:
     tokens = [t.strip() for t in str(details).split("|")]
     fields: dict[str, list[str]] = {}
     preamble: list[str] = []
-    current_label: Optional[str] = None
+    current_label: str | None = None
     for tok in tokens:
         if not tok:
             continue
@@ -115,6 +118,11 @@ def main():
         event_date_raw = details.get("भेटिएको मिति/समय", "")
         m = re.search(r"\d{4}-\d{2}-\d{2}", event_date_raw)
         event_date = m.group(0) if m else ""
+        # Phase 5: this event_date is a bare numeric string with no calendar
+        # marker -- the UDB list page mixes BS and AD, so normalize_date()'s
+        # year-range heuristic (see dvi/dates.py) is needed here, not a
+        # straight AD parse.
+        date_norm = normalize_date(event_date)
 
         facility = details.get("हाल शव राखेको स्थान", "")
         disaster_tag = extract_disaster_tag(details.get("_preamble", ""))
@@ -148,7 +156,14 @@ def main():
             "age_max": age_max,
             "height_cm": None,  # not available from list-page scrape
             "event_date": event_date,
+            "raw_event_date": date_norm["raw_event_date"],
+            "calendar_type": date_norm["calendar_type"],
+            "event_date_normalized": date_norm["event_date_normalized"],
             "location": location,
+            "province": "",  # not available -- list-page scrape has no detail-page JSON to split from
+            "district": "",
+            "municipality": "",
+            "ward": "",
             "clothing": "",  # not available from list-page scrape
             "distinguishing_marks": "",  # not available from list-page scrape
             "image_path": image_path,
@@ -160,9 +175,11 @@ def main():
         })
 
     fieldnames = ["record_id", "record_type", "name", "sex", "age_min", "age_max",
-                  "height_cm", "event_date", "location", "clothing",
-                  "distinguishing_marks", "image_path", "image_sha256", "source_ref",
-                  "scraped_at", "current_facility", "disaster_tag"]
+                  "height_cm", "event_date", "raw_event_date", "calendar_type",
+                  "event_date_normalized", "location", "province", "district",
+                  "municipality", "ward", "clothing", "distinguishing_marks",
+                  "image_path", "image_sha256", "source_ref", "scraped_at",
+                  "current_facility", "disaster_tag"]
     OUT_MANIFEST.parent.mkdir(parents=True, exist_ok=True)
     with OUT_MANIFEST.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

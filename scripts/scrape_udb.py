@@ -37,9 +37,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import requests
 import urllib3
@@ -47,6 +46,9 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from dvi.dates import normalize_date
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -68,7 +70,7 @@ def to_latin_digits(s: str) -> str:
     return s.translate(DEVANAGARI_DIGITS)
 
 
-def clean(s: Optional[str]) -> str:
+def clean(s: str | None) -> str:
     if not s:
         return ""
     return re.sub(r"\s+", " ", s).strip()
@@ -79,14 +81,14 @@ def all_numbers(s: str) -> list[float]:
     return [float(x) for x in re.findall(r"\d+(?:\.\d+)?", s)]
 
 
-def height_to_cm(raw: str) -> Optional[float]:
+def height_to_cm(raw: str) -> float | None:
     raw = clean(raw)
     if not raw:
         return None
     nums = all_numbers(raw)
     if not nums:
         return None
-    if "फिट" in raw or re.search(r"\bft\b", raw, re.I):
+    if "फिट" in raw or re.search(r"\bft\b", raw, re.IGNORECASE):
         feet = nums[0]
         inches = nums[1] if len(nums) > 1 else 0.0
         return round(feet * 30.48 + inches * 2.54, 1)
@@ -127,7 +129,7 @@ def make_session(pool_size: int) -> requests.Session:
 
 
 def fetch(session: requests.Session, url: str, params: dict | None = None,
-          retries: int = 3, delay: float = 0.5, timeout: int = 30) -> Optional[requests.Response]:
+          retries: int = 3, delay: float = 0.5, timeout: int = 30) -> requests.Response | None:
     for attempt in range(1, retries + 1):
         try:
             resp = session.get(url, params=params, timeout=timeout)
@@ -140,9 +142,9 @@ def fetch(session: requests.Session, url: str, params: dict | None = None,
     return None
 
 
-def list_ids(session: requests.Session, record_type: str, date_from: Optional[str],
-             date_to: Optional[str], delay: float, concurrency: int,
-             limit: Optional[int] = None) -> list[ListItem]:
+def list_ids(session: requests.Session, record_type: str, date_from: str | None,
+             date_to: str | None, delay: float, concurrency: int,
+             limit: int | None = None) -> list[ListItem]:
     if record_type == "AM":
         list_url, detail_tpl, photo_tpl, link_marker = (
             f"{BASE}/missing", f"{BASE}/missing/{{id}}", f"{BASE}/missing/photo/{{id}}", "/missing/",
@@ -202,8 +204,8 @@ def list_ids(session: requests.Session, record_type: str, date_from: Optional[st
             time.sleep(delay)
             if r is not None:
                 parse_page(BeautifulSoup(r.text, "html.parser"))
-        except Exception as e:
-            print(f"  ! unhandled error on list page {page}: {e}", file=sys.stderr)
+        except Exception as _:  # noqa: BLE001
+            print(f"  ! unhandled error on list page {page}: {_}", file=sys.stderr)
 
     pages = list(range(2, total_pages + 1))
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -264,7 +266,7 @@ def parse_detail(html: str) -> dict:
 def find_first(sections: dict[str, dict[str, str]], *labels: str) -> str:
     for section in sections.values():
         for label in labels:
-            if label in section and section[label]:
+            if section.get(label):
                 return section[label]
     return ""
 
@@ -297,8 +299,15 @@ def normalize(record_type: str, item_id: str, parsed: dict, image_path: str,
         event_date = find_first(sections, "हराएको मिति")
     else:
         event_date = find_first(sections, "भेटिएको मिति")
-    location = find_first(sections, "प्रदेश") + " " + find_first(sections, "जिल्ला") + " " + \
-        find_first(sections, "गाउँपालिका / नगरपालिका")
+    province = find_first(sections, "प्रदेश")
+    district = find_first(sections, "जिल्ला")
+    municipality = find_first(sections, "गाउँपालिका / नगरपालिका")
+    ward = find_first(sections, "वार्ड नम्बर")
+    location = province + " " + district + " " + municipality
+
+    # Phase 5: persist raw/calendar_type/normalized alongside the raw string --
+    # UDB dates have no calendar marker and mix BS/AD, see dvi/dates.py.
+    date_norm = normalize_date(clean(event_date))
 
     return {
         "record_id": f"{record_type}{item_id}",
@@ -309,7 +318,14 @@ def normalize(record_type: str, item_id: str, parsed: dict, image_path: str,
         "age_max": age_max,
         "height_cm": height_cm,
         "event_date": clean(event_date),
+        "raw_event_date": date_norm["raw_event_date"],
+        "calendar_type": date_norm["calendar_type"],
+        "event_date_normalized": date_norm["event_date_normalized"],
         "location": clean(location),
+        "province": clean(province),
+        "district": clean(district),
+        "municipality": clean(municipality),
+        "ward": clean(ward),
         "clothing": find_first(sections, "लगाएको लुगा"),
         "distinguishing_marks": find_first(sections, "विशेष चिन्ह", "विशिष्ट लक्षणहरु"),
         "image_path": image_path,
@@ -333,14 +349,14 @@ def download_image(session: requests.Session, url: str, dest: Path, delay: float
         clean_img.putdata(data)
         dest.parent.mkdir(parents=True, exist_ok=True)
         clean_img.save(dest, format="JPEG", quality=92)
-    except Exception as exc:
-        print(f"  ! could not process image {url}: {exc}", file=sys.stderr)
+    except Exception as _:  # noqa: BLE001
+        print(f"  ! could not process image {url}: {_}", file=sys.stderr)
         return "", ""
     return str(dest.relative_to(ROOT)), sha256
 
 
 def process_one(session: requests.Session, item: ListItem, sub: str, delay: float,
-                 force: bool) -> Optional[dict]:
+                 force: bool) -> dict | None:
     raw_json_path = RAW_DIR / "json" / sub / f"{item.record_id}.json"
     img_dest = RAW_DIR / "images" / sub / f"{item.record_id}.jpg"
 
@@ -349,7 +365,7 @@ def process_one(session: requests.Session, item: ListItem, sub: str, delay: floa
         sha256 = hashlib.sha256(img_dest.read_bytes()).hexdigest()
         record = normalize(item.record_type, item.record_id, parsed,
                             str(img_dest.relative_to(ROOT)), sha256, source_ref=item.detail_url)
-        record["scraped_at"] = datetime.now(timezone.utc).isoformat()
+        record["scraped_at"] = datetime.now(UTC).isoformat()
         return record
 
     resp = fetch(session, item.detail_url, delay=delay)
@@ -366,18 +382,19 @@ def process_one(session: requests.Session, item: ListItem, sub: str, delay: floa
 
     record = normalize(item.record_type, item.record_id, parsed, image_path, sha256,
                         source_ref=item.detail_url)
-    record["scraped_at"] = datetime.now(timezone.utc).isoformat()
+    record["scraped_at"] = datetime.now(UTC).isoformat()
     return record
 
 
 FIELDNAMES = ["record_id", "record_type", "name", "sex", "age_min", "age_max",
-              "height_cm", "event_date", "location", "clothing",
-              "distinguishing_marks", "image_path", "image_sha256", "source_ref",
-              "scraped_at"]
+              "height_cm", "event_date", "raw_event_date", "calendar_type",
+              "event_date_normalized", "location", "province", "district",
+              "municipality", "ward", "clothing", "distinguishing_marks",
+              "image_path", "image_sha256", "source_ref", "scraped_at"]
 
 
-def scrape(record_type: str, date_from: Optional[str], date_to: Optional[str], delay: float,
-           concurrency: int, limit: Optional[int], force: bool, out_path: Path):
+def scrape(record_type: str, date_from: str | None, date_to: str | None, delay: float,
+           concurrency: int, limit: int | None, force: bool, out_path: Path):
     session = make_session(pool_size=concurrency)
     items = list_ids(session, record_type, date_from, date_to, delay, concurrency, limit)
     print(f"[{record_type}] {len(items)} record(s) to fetch")
@@ -399,14 +416,14 @@ def scrape(record_type: str, date_from: Optional[str], date_to: Optional[str], d
         # ADDED: catch-all error handling so one bad record doesn't crash the script
         try:
             return item, process_one(session, item, sub, delay, force)
-        except Exception as e:
-            print(f"  ! unhandled error processing {item.record_id}: {e}", file=sys.stderr)
+        except Exception as _:  # noqa: BLE001
+            print(f"  ! unhandled error processing {item.record_id}: {_}", file=sys.stderr)
             return item, None
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [pool.submit(worker, item) for item in items]
         for fut in as_completed(futures):
-            item, record = fut.result()
+            _ , record = fut.result()
             with progress_lock:
                 done += 1
                 if done % 20 == 0 or done == len(items):

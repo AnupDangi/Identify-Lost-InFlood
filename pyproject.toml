@@ -9,10 +9,21 @@ dependencies = [
     "faiss-cpu>=1.15.0",
     "fastapi[standard]>=0.141.1",
     "insightface>=1.0.1",
+    "nepali-datetime>=1.0.8.5",
     "numpy>=2.5.2",
     "onnxruntime>=1.29.0",
     "opencv-python-headless>=5.0.0.93",
+    "pandas>=3.0.5",
     "pillow>=12.3.0",
     "requests>=2.34.2",
     "uvicorn>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.5",
 ]

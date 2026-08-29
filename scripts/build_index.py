@@ -28,7 +28,7 @@ def main():
 
     idx_csv = MANIFEST_DIR / f"{args.record_type}_embeddings_index.csv"
     df = pd.read_csv(idx_csv)
-    usable = df[df["usable"] == True]  # noqa: E712
+    usable = df[df["usable"] == True]
 
     vectors = []
     id_map = []

@@ -1,0 +1,13 @@
+[project]
+name = "find-lost-inflood"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "fastapi[standard]>=0.141.1",
+    "pillow>=12.3.0",
+    "requests>=2.34.2",
+    "uvicorn>=0.52.4",
+]

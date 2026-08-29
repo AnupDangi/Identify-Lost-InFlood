@@ -44,7 +44,7 @@ scripts/search_candidates.py
          rank, face_score, metadata_score, final_score, sex_conflict, ...)
         |
         v
-apps/api/main.py  (FastAPI)  --serves-->  web/index.html  (review UI)
+main.py  (FastAPI)  --serves-->  web/index.html  (review UI)
         |
         v
 data/manifests/reviews.csv  (Potential / Rejected / Inconclusive decisions)

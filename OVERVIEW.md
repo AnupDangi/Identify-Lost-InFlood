@@ -43,7 +43,7 @@ identifiers.
    20 by blending that face similarity with how well the metadata lines up (sex, age,
    height, how many days between "went missing" and "found," and whether the recorded
    locations overlap).
-5. **Human review** (`apps/api/main.py` + `web/index.html`) — an investigator browses
+5. **Human review** (`main.py` + `web/index.html`) — an investigator browses
    either list, opens a record's candidates, and marks each Potential / Rejected /
    Inconclusive. Every decision is logged with a timestamp for audit.
 

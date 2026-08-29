@@ -72,7 +72,7 @@ uv run python3 scripts/search_candidates.py --top-k 20
 uv run python3 scripts/compare_am_pm.py --top-k 20
 
 # 5. Review API + UI
-uv run uvicorn apps.api.main:app --port 8001
+uv run main.py
 # open http://localhost:8001/
 ```
 
@@ -105,7 +105,7 @@ scripts/
   compare_am_pm.py               Metadata-only fallback shortlist (no face pipeline
                                   required) + the sex/age/height/date/location
                                   scoring functions reused by search_candidates.py
-apps/api/main.py                 FastAPI review API + static file server
+main.py                          FastAPI review API + static file server (entry point)
 web/index.html                   Review UI (plain HTML/JS, no build step)
 docs/project_requirement.md      Original design document
 ARCHITECTURE.md                  System architecture, data flow, scoring model

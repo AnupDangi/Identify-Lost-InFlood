@@ -93,12 +93,6 @@ log to `data/manifests/reviews.csv`. Unidentified-body photos are blurred by def
 ![Dead Bodies tab, candidate view](demo/images/image1.png)
 ![Dead Bodies tab, another record's candidates](demo/images/image2.png)
 
-> `demo/images/` is gitignored, same reasoning as `data/` — these screenshots show real,
-> identifiable people (a revealed graphic body photo, named missing persons), and this
-> repo has a public GitHub remote. The images above render locally (they exist on disk)
-> but **will show as broken links on GitHub** — that's intentional, not a bug. If you want
-> a screenshot that's safe to publish, swap in a cropped/blurred or synthetic one at the
-> same path.
 
 ## Repository layout
 

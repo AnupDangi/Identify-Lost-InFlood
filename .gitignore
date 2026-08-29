@@ -7,6 +7,4 @@ __pycache__/
 # Sensitive scraped data (missing-person / unidentified-body PII & photos) - never commit
 data/
 
-# Demo screenshots showing real identifiable people (revealed body photo,
-# named missing persons) - repo has a public GitHub remote, keep local only
-demo/
+

@@ -1,7 +1,7 @@
 [project]
 name = "find-lost-inflood"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-assisted disaster victim identification (DVI) research prototype that ranks AM↔PM candidate matches for human forensic review. It never determines identity."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

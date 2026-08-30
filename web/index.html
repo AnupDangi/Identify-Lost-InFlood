@@ -58,10 +58,15 @@
   .scorebar span { background: var(--panel2); border-radius: 4px; padding: 2px 6px; }
   .scorebar .final { background: var(--accent); color: #fff; font-weight: 600; }
   .scorebar .conflict { background: var(--bad); color: #fff; }
-  .score-note { font-size: 10px; color: var(--muted); margin: 2px 0 6px; }
+  .score-note { font-size: 10px; color: var(--warn); margin: 2px 0 6px; font-weight: 600; }
   .fallback-note { font-size: 12px; color: var(--warn); border: 1px dashed var(--warn); border-radius: 6px;
     padding: 8px 12px; margin-bottom: 16px; }
   .cand-fields { font-size: 12px; color: var(--muted); margin: 6px 0; }
+  .provenance { font-size: 11px; color: var(--muted); background: var(--panel2); border-radius: 6px; padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
+  .provenance strong { color: var(--text); }
+  .provenance .missing { color: var(--warn); }
+  .forensic-box { margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .forensic-box select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font-size: 11px; width: 100%; margin-top: 4px; }
   .actions { display: flex; gap: 6px; margin-top: 8px; }
   .actions button { flex: 1; border: 1px solid var(--border); background: var(--panel2);
     color: var(--text); border-radius: 6px; padding: 6px 4px; font-size: 11px; cursor: pointer; }
@@ -256,7 +261,7 @@ function renderDetail(rec, candRes) {
     : "";
 
   detail.innerHTML = `
-    <div class="disclaimer">${candRes.disclaimer || "Ranking score is not an identity probability. This is a shortlist for human review only -- confirm with fingerprint, dental, or DNA evidence."}</div>
+    <div class="disclaimer">⚠ Investigative Candidate — Not an Identification<br/>${candRes.disclaimer || "Ranking score is UNCALIBRATED — NOT identity probability. Do not communicate identity to families based on this result. Identification requires authorized forensic confirmation."}</div>
     ${fallbackNote}
     <div class="rec-header">
       ${photoBox(rec.image_url, isPmQuery, "main")}
@@ -291,25 +296,55 @@ function renderDetail(rec, candRes) {
       c.am_metadata_vision_conflict ? `<span class="conflict">AM photo/record sex differ</span>` : "",
       c.pm_metadata_vision_conflict ? `<span class="conflict">PM photo/record sex differ</span>` : "",
     ].join("");
-    card.innerHTML = `
+     const prov = c.provenance || { reasons: [], missing_evidence: [] };
+     const provenanceHtml = `
+       <div class="provenance">
+         <strong>Reason for ranking:</strong> ${prov.reasons.join(" + ") || "Combined ranking"}<br/>
+         <strong>Details:</strong>
+           Face similarity ${c.face_score != null ? c.face_score.toFixed(3) : "n/a"} ·
+           Recorded sex ${c.sex_score != null ? (c.sex_score >= 0.8 ? "compatible" : c.sex_score >= 0.5 ? "neutral" : "conflict") : "n/a"} ·
+           Age ${c.age_score != null ? c.age_score.toFixed(2) : "n/a"} ·
+           Height ${c.height_score != null ? c.height_score.toFixed(2) : "n/a"} ·
+           Date ${c.date_score != null ? c.date_score.toFixed(2) : "n/a"} ·
+           Location ${c.location_score != null ? c.location_score.toFixed(2) : "n/a"}<br/>
+         <strong>Record:</strong>
+           ${c.sex || "?"} · ${fmtAge(c)} · ${c.location || "no location"} ·
+           date: ${c.event_date || "-"} ${c.calendar_type ? "(" + c.calendar_type + ")" : ""} ·
+           clothing: ${c.clothing || "unavailable"} ·
+           marks: ${c.distinguishing_marks || "unavailable"}<br/>
+         <span class="missing"><strong>Missing evidence:</strong> ${(prov.missing_evidence || []).join(", ") || "fingerprint, dental, DNA"}</span>
+       </div>`;
+     card.innerHTML = `
       <div class="rank">#${c.rank}</div>
       ${photoBox(c.image_url, candIsPm, "c" + i)}
       <div class="name">${c.name || "(unnamed)"}  ${candId}</div>
       <div class="scorebar">
-        ${c.face_score != null ? `<span>Face similarity: ${c.face_score.toFixed(3)}</span>` : `<span>Face similarity: n/a</span>`}
+        ${c.face_score != null ? `<span>Face similarity score: ${c.face_score.toFixed(3)}</span>` : `<span>Face similarity score: n/a</span>`}
         <span>Metadata compatibility: ${c.metadata_score.toFixed(3)}</span>
-        <span class="final">Ranking score: ${c.final_score.toFixed(3)}</span>
+        <span class="final">Composite ranking score: ${c.final_score.toFixed(3)}</span>
         ${conflictBadges}
       </div>
-      <div class="score-note">Ranking score is not an identity probability.</div>
+      <div class="score-note">UNCALIBRATED — NOT IDENTITY PROBABILITY</div>
       <div class="cand-fields">
         ${c.sex || "?"} - ${fmtAge(c)} - ${c.location || "no location"}<br/>
-        date: ${c.event_date || "-"}
+        date: ${c.event_date || "-"} ${c.calendar_type ? "(" + c.calendar_type + ")" : ""}
       </div>
+      ${provenanceHtml}
       <div class="actions">
-        <button class="potential" data-d="potential">Potential</button>
-        <button class="rejected" data-d="rejected">Reject</button>
-        <button class="inconclusive" data-d="inconclusive">Inconclusive</button>
+        <button class="potential" data-d="candidate_for_further_examination" title="Candidate for further examination">Candidate for further exam.</button>
+        <button class="rejected" data-d="not_likely_candidate" title="Not a likely candidate">Not likely</button>
+        <button class="inconclusive" data-d="insufficient_evidence" title="Insufficient evidence">Insufficient evidence</button>
+      </div>
+      <div class="forensic-box">
+        <label>Forensic status (external determination)</label>
+        <select class="forensic-select">
+          <option value="">Not examined</option>
+          <option value="fingerprint_requested">Fingerprint comparison requested</option>
+          <option value="dental_requested">Dental comparison requested</option>
+          <option value="dna_requested">DNA comparison requested</option>
+          <option value="excluded">Excluded through forensic evidence</option>
+          <option value="confirmed_externally">Identification confirmed externally</option>
+        </select>
       </div>
     `;
     wireReveal(card);
@@ -317,10 +352,11 @@ function renderDetail(rec, candRes) {
       btn.onclick = async () => {
         const pm_record_id = isPmQuery ? rec.record_id : candId;
         const am_record_id = isPmQuery ? candId : rec.record_id;
+        const forensic_status = card.querySelector(".forensic-select").value;
         await fetch(`${API}/api/review`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pm_record_id, am_record_id, decision: btn.dataset.d }),
+          body: JSON.stringify({ pm_record_id, am_record_id, decision: btn.dataset.d, forensic_status }),
         });
         card.querySelectorAll(".actions button").forEach(b => b.classList.remove("selected"));
         btn.classList.add("selected");
@@ -330,7 +366,7 @@ function renderDetail(rec, candRes) {
   });
 }
 
-// ---- Upload & Search wiring ----
+ // ---- Upload & Search wiring ----
 const uploadFile = document.getElementById("uploadFile");
 const uploadName = document.getElementById("uploadName");
 const uploadSex = document.getElementById("uploadSex");
@@ -398,7 +434,7 @@ function renderUploadResults(uploadedFile, res) {
     : "";
   const uploadedUrl = previewImg.src;
   container.innerHTML = `
-    <div class="disclaimer">${res.disclaimer || "Ranking score is not an identity probability. This is a shortlist for human review only."}</div>
+    <div class="disclaimer">⚠ Investigative Candidate — Not an Identification<br/>${res.disclaimer || "Ranking score is UNCALIBRATED — NOT identity probability. Do not communicate identity to families based on this result."}</div>
     ${fallbackNote}
     <div class="query-meta">
       <span><strong>Query:</strong> ${q.provided_name ? q.provided_name : "(no name given — optional)"} </span>
@@ -429,25 +465,47 @@ function renderUploadResults(uploadedFile, res) {
       c.am_metadata_vision_conflict ? `<span class="conflict">AM photo/record sex differ</span>` : "",
       c.pm_metadata_vision_conflict ? `<span class="conflict">PM photo/record sex differ</span>` : "",
     ].join("");
+    const prov = c.provenance || { reasons: [], missing_evidence: [] };
+    const provenanceHtml = `
+      <div class="provenance">
+        <strong>Reason for ranking:</strong> ${prov.reasons.join(" + ") || "Combined ranking"}<br/>
+        <strong>Details:</strong>
+          Face similarity ${c.face_score != null ? c.face_score.toFixed(3) : "n/a"} ·
+          Age ${c.age_score != null ? c.age_score.toFixed(2) : "n/a"} ·
+          Location ${c.location_score != null ? c.location_score.toFixed(2) : "n/a"}<br/>
+        <span class="missing"><strong>Missing evidence:</strong> ${(prov.missing_evidence || []).join(", ") || "fingerprint, dental, DNA"}</span>
+      </div>`;
     card.innerHTML = `
       <div class="rank">#${c.rank}</div>
       ${photoBox(c.image_url, candIsPm, "u" + i)}
       <div class="name">${c.name || "(unnamed)"}  ${candId}</div>
       <div class="scorebar">
-        ${c.face_score != null ? `<span>Face similarity: ${c.face_score.toFixed(3)}</span>` : `<span>Face similarity: n/a</span>`}
+        ${c.face_score != null ? `<span>Face similarity score: ${c.face_score.toFixed(3)}</span>` : `<span>Face similarity score: n/a</span>`}
         <span>Metadata compatibility: ${c.metadata_score.toFixed(3)}</span>
-        <span class="final">Ranking score: ${c.final_score.toFixed(3)}</span>
+        <span class="final">Composite ranking score: ${c.final_score.toFixed(3)}</span>
         ${conflictBadges}
       </div>
-      <div class="score-note">Ranking score is not an identity probability.</div>
+      <div class="score-note">UNCALIBRATED — NOT IDENTITY PROBABILITY</div>
       <div class="cand-fields">
         ${c.sex || "?"} - ${fmtAge(c)} - ${c.location || "no location"}<br/>
-        date: ${c.event_date || "-"}
+        date: ${c.event_date || "-"} ${c.calendar_type ? "(" + c.calendar_type + ")" : ""}
       </div>
+      ${provenanceHtml}
       <div class="actions">
-        <button class="potential" data-d="potential">Potential</button>
-        <button class="rejected" data-d="rejected">Reject</button>
-        <button class="inconclusive" data-d="inconclusive">Inconclusive</button>
+        <button class="potential" data-d="candidate_for_further_examination">Candidate for further exam.</button>
+        <button class="rejected" data-d="not_likely_candidate">Not likely</button>
+        <button class="inconclusive" data-d="insufficient_evidence">Insufficient evidence</button>
+      </div>
+      <div class="forensic-box">
+        <label>Forensic status</label>
+        <select class="forensic-select">
+          <option value="">Not examined</option>
+          <option value="fingerprint_requested">Fingerprint comparison requested</option>
+          <option value="dental_requested">Dental comparison requested</option>
+          <option value="dna_requested">DNA comparison requested</option>
+          <option value="excluded">Excluded through forensic evidence</option>
+          <option value="confirmed_externally">Identification confirmed externally</option>
+        </select>
       </div>
     `;
     wireReveal(card);
@@ -457,10 +515,11 @@ function renderUploadResults(uploadedFile, res) {
         // with a synthetic pm/am pair where the upload side uses the provided name.
         const pm_record_id = targetIsPm ? candId : ("UPLOAD:" + (q.provided_name || "unknown"));
         const am_record_id = targetIsPm ? ("UPLOAD:" + (q.provided_name || "unknown")) : candId;
+        const forensic_status = card.querySelector(".forensic-select").value;
         await fetch(`${API}/api/review`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pm_record_id, am_record_id, decision: btn.dataset.d, notes: `upload search: name=${q.provided_name||""} sex=${q.provided_sex||""}/${q.detected_sex||""}` }),
+          body: JSON.stringify({ pm_record_id, am_record_id, decision: btn.dataset.d, forensic_status, notes: `upload search: name=${q.provided_name||""} sex=${q.provided_sex||""}/${q.detected_sex||""}` }),
         });
         card.querySelectorAll(".actions button").forEach(b => b.classList.remove("selected"));
         btn.classList.add("selected");

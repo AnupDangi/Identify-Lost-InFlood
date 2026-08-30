@@ -1,0 +1,19 @@
+{
+  "record_id": "AM-DEMO-001",
+  "record_type": "AM",
+  "name": "Ramesh Karki (synthetic)",
+  "sex": "male",
+  "age_min": 34,
+  "age_max": 36,
+  "height_cm": 168,
+  "event_date": "2025-08-02",
+  "event_date_normalized": "2025-08-02",
+  "calendar_type": "AD",
+  "location": "Rasuwa — synthetic",
+  "province": "Bagmati (synthetic)",
+  "district": "Rasuwa (synthetic)",
+  "image_path": "demo/screenshots/placeholder_am_001.jpg",
+  "clothing": "Blue shirt, dark trousers (synthetic)",
+  "distinguishing_marks": "Mole on left cheek (synthetic)",
+  "disclaimer": "Synthetic record — not a real person"
+}

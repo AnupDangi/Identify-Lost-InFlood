@@ -1,0 +1,39 @@
+{
+  "record_id": "PM-DEMO-004",
+  "record_type": "PM",
+  "name": "",
+  "sex": "female",
+  "age_min": 27,
+  "age_max": 32,
+  "height_cm": 156,
+  "event_date": "2025-08-10",
+  "raw_event_date": "2025-08-10 AD (synthetic)",
+  "event_date_normalized": "2025-08-10",
+  "calendar_type": "AD",
+  "conversion_status": "verified",
+  "location": "Rasuwa — synthetic recovery site",
+  "province": "Bagmati (synthetic)",
+  "district": "Rasuwa (synthetic)",
+  "image_path": "demo/screenshots/placeholder_pm_004.jpg",
+  "clothing": "Red kurta partial compatibility (synthetic)",
+  "distinguishing_marks": "Unavailable (synthetic)",
+  "disclaimer": "Synthetic record — not a real person",
+  "provenance_example": {
+    "candidate_AM-DEMO-017": {
+      "face_similarity_score": 0.81,
+      "metadata_compatibility": 0.68,
+      "composite_ranking_score": 0.76,
+      "score_note": "UNCALIBRATED — NOT IDENTITY PROBABILITY",
+      "recorded_sex": "compatible",
+      "age": "28 vs estimated 27-32 (compatible)",
+      "height": "155 vs 156 (compatible)",
+      "missing_date": "2025-08-03",
+      "recovery_date": "2025-08-10",
+      "last_known_location": "Rasuwa (synthetic)",
+      "recovery_location": "Rasuwa (synthetic)",
+      "clothing_description": "partial compatibility",
+      "reason_for_ranking": "High facial similarity + temporal/location compatibility",
+      "missing_evidence": ["fingerprint", "dental", "DNA", "distinguishing marks"]
+    }
+  }
+}

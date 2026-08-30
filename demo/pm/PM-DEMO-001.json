@@ -1,0 +1,21 @@
+{
+  "record_id": "PM-DEMO-001",
+  "record_type": "PM",
+  "name": "",
+  "sex": "male",
+  "age_min": 35,
+  "age_max": 40,
+  "height_cm": 170,
+  "event_date": "2025-08-10",
+  "raw_event_date": "2082-04-26 BS (synthetic example)",
+  "event_date_normalized": "2025-08-10",
+  "calendar_type": "BS",
+  "conversion_status": "verified",
+  "location": "Rasuwa — synthetic recovery site",
+  "province": "Bagmati (synthetic)",
+  "district": "Rasuwa (synthetic)",
+  "image_path": "demo/screenshots/placeholder_pm_001.jpg",
+  "clothing": "Partial compatibility — blue shirt (synthetic)",
+  "distinguishing_marks": "Unavailable (synthetic)",
+  "disclaimer": "Synthetic record — not a real person"
+}

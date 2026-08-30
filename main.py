@@ -52,8 +52,11 @@ else:
                         allow_headers=["*"])
 
 RANKING_DISCLAIMER = (
-    "Ranking score is not an identity probability. This is a shortlist for human "
-    "review only -- final identification requires fingerprint, dental, or DNA evidence."
+    "⚠ Investigative Candidate — Not an Identification. Ranking is generated from "
+    "facial and metadata similarity. Do not communicate identity to families based on "
+    "this result. Identification requires authorized forensic confirmation "
+    "(fingerprint, dental, or DNA). Ranking score is UNCALIBRATED — not an identity "
+    "probability."
 )
 
 # ---- Transient upload search (photo + optional name/sex -> face+gender matching) ----
@@ -245,6 +248,33 @@ def list_am(limit: int = 500, offset: int = 0):
     return _list_records("am", limit, offset)
 
 
+def _provenance(c: dict, cand_rec: dict, query_rec: dict) -> dict:
+    """Human-readable provenance for why a candidate was ranked."""
+    reasons = []
+    if c.get("face_score") is not None and c["face_score"] >= 0.7:
+        reasons.append("High facial similarity")
+    elif c.get("face_score") is not None and c["face_score"] >= 0.5:
+        reasons.append("Moderate facial similarity")
+    if c.get("location_score", 0) >= 0.8:
+        reasons.append("Location compatibility")
+    if c.get("date_score", 0) >= 0.7:
+        reasons.append("Temporal compatibility")
+    if c.get("age_score", 0) >= 0.7:
+        reasons.append("Age compatibility")
+    if not reasons:
+        reasons.append("Combined face + metadata ranking")
+    missing = []
+    if not cand_rec.get("height_cm"):
+        missing.append("height")
+    if not cand_rec.get("clothing"):
+        missing.append("clothing description")
+    if not cand_rec.get("distinguishing_marks"):
+        missing.append("distinguishing marks")
+    # Forensic signals always missing from this system
+    missing.extend(["fingerprint", "dental", "DNA"])
+    return {"reasons": reasons, "missing_evidence": missing}
+
+
 def _candidate_row(other: dict) -> dict:
     return {
         "record_id": other.get("record_id", ""),
@@ -255,6 +285,8 @@ def _candidate_row(other: dict) -> dict:
         "height_cm": other.get("height_cm", ""),
         "location": other.get("location", ""),
         "event_date": other.get("event_date", ""),
+        "event_date_normalized": other.get("event_date_normalized", ""),
+        "calendar_type": other.get("calendar_type", ""),
         "clothing": other.get("clothing", ""),
         "distinguishing_marks": other.get("distinguishing_marks", ""),
         "image_url": image_url(other.get("image_path")),
@@ -269,12 +301,15 @@ def _get_candidates(query_type: str, query_id: str, top_k: int) -> dict:
         raise HTTPException(404, f"{query_type} record '{query_id}' not found")
 
     candidate_records = retrieval.load_records(candidate_type)
+    query_records = retrieval.load_records(query_type)
+    query_rec = query_records.get(query_id, {})
     candidates = []
     for c in result["candidates"]:
         cand_id = c["candidate_record_id"]
         rec = candidate_records.get(cand_id)
         if rec is None:
             continue
+        prov = _provenance(c, rec, query_rec)
         candidates.append({
             "rank": c["rank"],
             f"{candidate_type}_record_id": cand_id,
@@ -282,10 +317,16 @@ def _get_candidates(query_type: str, query_id: str, top_k: int) -> dict:
             "face_score": c["face_score"],
             "metadata_score": c["metadata_score"],
             "final_score": c["final_score"],
+            "sex_score": c.get("sex_score"),
+            "age_score": c.get("age_score"),
+            "height_score": c.get("height_score"),
+            "date_score": c.get("date_score"),
+            "location_score": c.get("location_score"),
             "am_metadata_vision_conflict": c["am_metadata_vision_conflict"],
             "pm_metadata_vision_conflict": c["pm_metadata_vision_conflict"],
             "pair_metadata_conflict": c["pair_metadata_conflict"],
             "pair_vision_conflict": c["pair_vision_conflict"],
+            "provenance": prov,
         })
 
     return {
@@ -391,6 +432,7 @@ async def search_upload(
         rec = candidate_records.get(cand_id)
         if rec is None:
             continue
+        prov = _provenance(c, rec, query_rec)
         candidates.append({
             "rank": c["rank"],
             f"{candidate_type}_record_id": cand_id,
@@ -398,10 +440,16 @@ async def search_upload(
             "face_score": c["face_score"],
             "metadata_score": c["metadata_score"],
             "final_score": c["final_score"],
+            "sex_score": c.get("sex_score"),
+            "age_score": c.get("age_score"),
+            "height_score": c.get("height_score"),
+            "date_score": c.get("date_score"),
+            "location_score": c.get("location_score"),
             "am_metadata_vision_conflict": c["am_metadata_vision_conflict"],
             "pm_metadata_vision_conflict": c["pm_metadata_vision_conflict"],
             "pair_metadata_conflict": c["pair_metadata_conflict"],
             "pair_vision_conflict": c["pair_vision_conflict"],
+            "provenance": prov,
         })
 
     return {
@@ -423,21 +471,48 @@ async def search_upload(
     }
 
 
+DECISION_CANONICAL = {
+    "potential": "potential",
+    "candidate_for_further_examination": "potential",
+    "candidate for further examination": "potential",
+    "rejected": "rejected",
+    "not_likely_candidate": "rejected",
+    "not a likely candidate": "rejected",
+    "inconclusive": "inconclusive",
+    "insufficient_evidence": "inconclusive",
+    "insufficient evidence": "inconclusive",
+}
+
+FORENSIC_STATUSES = {
+    "not_examined", "fingerprint_requested", "dental_requested", "dna_requested",
+    "excluded", "confirmed_externally", ""
+}
+
+
 class ReviewPayload(BaseModel):
     pm_record_id: str
     am_record_id: str
-    decision: str  # potential | rejected | inconclusive
+    decision: str  # canonical or new workflow labels
+    forensic_status: str = ""  # optional forensic workflow status
     notes: str = ""
 
 
-REVIEW_FIELDNAMES = ["review_id", "pm_record_id", "am_record_id", "decision", "notes",
-                      "reviewed_at", "ranking_model_version", "face_model_version"]
+REVIEW_FIELDNAMES = ["review_id", "pm_record_id", "am_record_id", "decision", "forensic_status", "notes",
+                       "reviewed_at", "ranking_model_version", "face_model_version"]
 
 
 @app.post("/api/review")
 def submit_review(payload: ReviewPayload):
-    if payload.decision not in {"potential", "rejected", "inconclusive"}:
-        raise HTTPException(400, "decision must be potential|rejected|inconclusive")
+    dec_norm = payload.decision.strip().lower().replace(" ", "_").replace("-", "_")
+    canonical = DECISION_CANONICAL.get(dec_norm)
+    # also try raw lower
+    if canonical is None:
+        canonical = DECISION_CANONICAL.get(payload.decision.strip().lower())
+    if canonical is None:
+        raise HTTPException(400, "decision must be one of: Candidate for further examination, Not a likely candidate, Insufficient evidence (or legacy: potential|rejected|inconclusive)")
+    forensic_norm = (payload.forensic_status or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if forensic_norm not in FORENSIC_STATUSES:
+        raise HTTPException(400, f"forensic_status must be one of: {', '.join(sorted(s for s in FORENSIC_STATUSES if s))} or empty")
     reviews_path = MANIFEST_DIR / "reviews.csv"
     reviews_path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not reviews_path.exists()
@@ -445,11 +520,15 @@ def submit_review(payload: ReviewPayload):
         writer = csv.DictWriter(f, fieldnames=REVIEW_FIELDNAMES)
         if write_header:
             writer.writeheader()
+        dec_norm = payload.decision.strip().lower().replace(" ", "_").replace("-", "_")
+        canonical = DECISION_CANONICAL.get(dec_norm, DECISION_CANONICAL.get(payload.decision.strip().lower(), payload.decision))
+        forensic_norm = (payload.forensic_status or "").strip().lower().replace(" ", "_").replace("-", "_")
         writer.writerow({
             "review_id": str(uuid.uuid4()),
             "pm_record_id": payload.pm_record_id,
             "am_record_id": payload.am_record_id,
-            "decision": payload.decision,
+            "decision": canonical,
+            "forensic_status": forensic_norm,
             "notes": payload.notes,
             "reviewed_at": datetime.now(UTC).isoformat(),
             "ranking_model_version": RANKING_MODEL_VERSION,

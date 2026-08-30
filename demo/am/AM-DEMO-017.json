@@ -1,0 +1,19 @@
+{
+  "record_id": "AM-DEMO-017",
+  "record_type": "AM",
+  "name": "Sita Sharma (synthetic)",
+  "sex": "female",
+  "age_min": 28,
+  "age_max": 30,
+  "height_cm": 155,
+  "event_date": "2025-08-03",
+  "event_date_normalized": "2025-08-03",
+  "calendar_type": "AD",
+  "location": "Rasuwa — synthetic",
+  "province": "Bagmati (synthetic)",
+  "district": "Rasuwa (synthetic)",
+  "image_path": "demo/screenshots/placeholder_am_017.jpg",
+  "clothing": "Red kurta (synthetic)",
+  "distinguishing_marks": "Scar on right forearm (synthetic)",
+  "disclaimer": "Synthetic record — not a real person"
+}

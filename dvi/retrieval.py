@@ -197,6 +197,103 @@ def face_plus_metadata_ranking(query_type: str, query_record_id: str, candidate_
     return results
 
 
+def transient_metadata_only_ranking(query_rec: dict, candidate_type: str,
+                                     query_type: str = "am",
+                                     face_weight: float = 0.6) -> list[dict]:
+    """Ranks the full candidate gallery by metadata alone for a transient
+    (uploaded) query that has no persistent record_id. query_rec is a dict
+    with at least sex/detected_sex/name if provided; missing fields are
+    treated as neutral (0.5) by scoring, so a photo+gender-only upload that
+    matches a PM body with no metadata still rank-orders by sex/vision
+    compatibility alone."""
+    candidate_records = load_records(candidate_type)
+    results = []
+    for cand_id, cand_rec in candidate_records.items():
+        row = _score_pair(query_type, query_rec, candidate_type, cand_rec, None, face_weight)
+        row["candidate_record_id"] = cand_id
+        results.append(row)
+    results.sort(key=lambda r: r["final_score"], reverse=True)
+    return results
+
+
+def transient_face_plus_metadata_ranking(query_rec: dict,
+                                         query_embedding: np.ndarray,
+                                         candidate_type: str,
+                                         query_type: str = "am",
+                                         faiss_k="all",
+                                         face_weight: float = 0.6) -> list[dict] | None:
+    """FAISS search for a transient query embedding + metadata re-ranking.
+    Returns None if candidate_type's index hasn't been built -- caller falls
+    back to metadata_only. query_embedding must be a 512-d L2-normalized
+    float32 vector (or None already handled by caller)."""
+    if query_embedding is None:
+        return None
+    index, id_map = load_index(candidate_type)
+    if index is None or not id_map:
+        return None
+    candidate_records = load_records(candidate_type)
+    qvec = np.asarray(query_embedding, dtype=np.float32).reshape(1, -1)
+    k = resolve_faiss_k(faiss_k, len(id_map))
+    if k == 0:
+        return []
+    sims, idxs = index.search(qvec, k)
+    results = []
+    for sim, idx in zip(sims[0], idxs[0]):
+        if idx < 0:
+            continue
+        cand_id = id_map[idx]
+        cand_rec = candidate_records.get(cand_id)
+        if cand_rec is None:
+            continue
+        face_score = float(max(0.0, min(1.0, (float(sim) + 1) / 2)))
+        row = _score_pair(query_type, query_rec, candidate_type, cand_rec, face_score, face_weight)
+        row["candidate_record_id"] = cand_id
+        results.append(row)
+    results.sort(key=lambda r: r["final_score"], reverse=True)
+    return results
+
+
+def search_transient(query_rec: dict,
+                     query_embedding: np.ndarray | None,
+                     candidate_type: str,
+                     query_type: str = "am",
+                     top_k: int = 20,
+                     faiss_k="all",
+                     face_weight: float = 0.6) -> dict:
+    """Ranks candidate_type records for a transient (uploaded) query.
+
+    query_rec: dict with at least sex/detected_sex/name (missing keys are
+               treated as neutral by scoring).
+    query_embedding: 512-d normalized vector or None (no usable face).
+    candidate_type: "am" or "pm" gallery to search.
+    query_type: logical type of the query ("am" for family upload searching
+                PM bodies, "pm" for the reverse). Affects metadata ordering
+                only; face similarity is symmetric.
+    Returns same shape as search_query: {"candidate_source", "has_face",
+             "candidates": [...]}.
+    """
+    assert candidate_type in VALID_TYPES and query_type in VALID_TYPES and candidate_type != query_type
+    has_face = query_embedding is not None
+    results = None
+    if has_face:
+        results = transient_face_plus_metadata_ranking(query_rec, query_embedding,
+                                                       candidate_type, query_type,
+                                                       faiss_k=faiss_k, face_weight=face_weight)
+    if results is not None:
+        source = "face+metadata"
+    else:
+        results = transient_metadata_only_ranking(query_rec, candidate_type, query_type, face_weight)
+        source = "metadata_only"
+    for rank, row in enumerate(results[:top_k], 1):
+        row["rank"] = rank
+    results = results[:top_k]
+    return {
+        "candidate_source": source if results else "none",
+        "has_face": has_face,
+        "candidates": results,
+    }
+
+
 def search_query(query_type: str, query_record_id: str, candidate_type: str,
                   top_k: int = 20, faiss_k="all", face_weight: float = 0.6) -> dict:
     """Ranks `candidate_type` records for one `query_type` record.

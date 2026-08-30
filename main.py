@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -55,6 +55,128 @@ RANKING_DISCLAIMER = (
     "Ranking score is not an identity probability. This is a shortlist for human "
     "review only -- final identification requires fingerprint, dental, or DNA evidence."
 )
+
+# ---- Transient upload search (photo + optional name/sex -> face+gender matching) ----
+# Uses the same InsightFace buffalo_l model as scripts/build_embeddings.py, but
+# on an ephemeral uploaded image that is never persisted to data/. If the upload
+# contains no usable face, the endpoint falls back to metadata-only (sex) ranking
+# so a body with no metadata still participates (neutral 0.5 scores). Name is
+# optional and currently informational (returned, not scored); future work could
+# add fuzzy name similarity as a metadata signal.
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_SEX = {"", "male", "female", "other", "unspecified"}
+
+_face_app = None  # lazy singleton -- ~280MB model, don't load at import time
+
+
+def _get_face_app():
+    global _face_app
+    if _face_app is not None:
+        return _face_app
+    from insightface.app import FaceAnalysis
+
+    from dvi.models import FACE_MODEL_NAME
+
+    app = FaceAnalysis(name=FACE_MODEL_NAME, providers=["CPUExecutionProvider"])
+    app.prepare(ctx_id=-1, det_size=(640, 640))
+    _face_app = app
+    return _face_app
+
+
+def _process_upload_bytes(image_bytes: bytes) -> dict:
+    """Detects the best face in an uploaded image and returns a dict with
+    embedding (np.ndarray or None), detected_sex, has_face, quality_band,
+    failure_reason, detector_score. Mirrors scripts/build_embeddings.process_image
+    quality logic but works from bytes with no file persistence."""
+    import cv2
+    import numpy as np
+
+    from dvi.quality import assess_quality
+
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return {
+            "has_face": False,
+            "embedding": None,
+            "detected_sex": "",
+            "quality_band": "unusable",
+            "failure_reason": "unreadable_image",
+            "detector_score": None,
+        }
+
+    app = _get_face_app()
+    faces = app.get(img)
+    if not faces:
+        return {
+            "has_face": False,
+            "embedding": None,
+            "detected_sex": "",
+            "quality_band": "unusable",
+            "failure_reason": "no_face_detected",
+            "detector_score": None,
+        }
+
+    face = max(faces, key=lambda f: float(getattr(f, "det_score", 0)))
+    x1, y1, x2, y2 = [int(v) for v in face.bbox]
+    w, h = x2 - x1, y2 - y1
+
+    detected_sex = ""
+    gender = getattr(face, "gender", None)
+    if gender is not None:
+        try:
+            detected_sex = "male" if int(gender) == 1 else "female"
+        except Exception:
+            detected_sex = ""
+    landmarks_available = getattr(face, "kps", None) is not None
+    quality = assess_quality(
+        detector_score=float(face.det_score),
+        face_w=w,
+        face_h=h,
+        blur_score=None,
+        landmarks_available=landmarks_available,
+    )
+    if not quality.usable:
+        return {
+            "has_face": False,
+            "embedding": None,
+            "detected_sex": detected_sex,
+            "quality_band": quality.quality_band,
+            "failure_reason": quality.quality_reasons[0] if quality.quality_reasons else "unusable",
+            "detector_score": float(face.det_score),
+        }
+
+    # Re-compute blur on crop for band info (not a hard gate by default)
+    try:
+        crop_gray = cv2.cvtColor(img[max(0, y1):y2, max(0, x1):x2], cv2.COLOR_BGR2GRAY)
+        b_score = float(cv2.Laplacian(crop_gray, cv2.CV_64F).var()) if crop_gray.size else None
+    except Exception:
+        b_score = None
+
+    embedding = getattr(face, "normed_embedding", None)
+    if embedding is None:
+        embedding = getattr(face, "embedding", None)
+        if embedding is not None:
+            import numpy as _np
+
+            n = _np.linalg.norm(embedding)
+            if n > 0:
+                embedding = embedding / n
+    if embedding is not None:
+        import numpy as _np
+
+        embedding = _np.asarray(embedding, dtype=_np.float32)
+
+    return {
+        "has_face": True if embedding is not None else False,
+        "embedding": embedding,
+        "detected_sex": detected_sex,
+        "quality_band": quality.quality_band,
+        "failure_reason": "",
+        "detector_score": float(face.det_score),
+        "blur_score": b_score,
+    }
 
 
 def image_url(image_path) -> str | None:
@@ -183,6 +305,122 @@ def get_pm_candidates(pm_id: str, top_k: int = 20):
 @app.get("/api/am/{am_id}/candidates")
 def get_am_candidates(am_id: str, top_k: int = 20):
     return _get_candidates("am", am_id, top_k)
+
+
+@app.post("/api/search/upload")
+async def search_upload(
+    file: UploadFile = File(...),
+    name: str = Form(default=""),
+    sex: str = Form(default=""),
+    target: str = Form(default="pm"),
+    top_k: int = Form(default=20),
+):
+    """Upload a face photo (+ optional name/sex) and search the opposite gallery.
+
+    - file: image/jpeg, image/png, or image/webp (max 10 MB). Face is detected
+      on the fly using the same buffalo_l ArcFace pipeline as the batch
+      embedding job; the file is never written to data/.
+    - name: optional display name (informational, not scored).
+    - sex: optional provided sex (male/female/other/unspecified). Blended with
+      vision-estimated sex via dvi.scoring.sex_score; if the PM body has no
+      metadata at all, this still provides a soft gender filter (face+sex only).
+    - target: gallery to search ("pm" = unidentified bodies (default, family
+      searching for a missing person), "am" = missing persons).
+    - top_k: 1..100, default 20.
+    Returns the same candidate shape as the other candidate endpoints, plus a
+    `query` block describing what was extracted from the upload.
+    """
+    target = (target or "pm").lower().strip()
+    if target not in ("pm", "am"):
+        raise HTTPException(400, "target must be 'pm' or 'am'")
+    candidate_type = target
+    query_type = "am" if candidate_type == "pm" else "pm"
+
+    # Normalize sex: allow empty/unspecified to mean "unknown"
+    sex_norm = (sex or "").strip().lower()
+    if sex_norm == "unspecified":
+        sex_norm = ""
+    if sex_norm not in ALLOWED_SEX:
+        raise HTTPException(400, "sex must be male|female|other|unspecified (or empty)")
+
+    try:
+        top_k = int(top_k)
+    except Exception:
+        raise HTTPException(400, "top_k must be an integer")
+    top_k = max(1, min(100, top_k))
+
+    if file is None or not file.filename:
+        raise HTTPException(400, "file is required")
+
+    # Basic mime/extension allowlist -- cv2 will still be the final validator
+    fname_lower = (file.filename or "").lower()
+    allowed_ext = (".jpg", ".jpeg", ".png", ".webp")
+    if not any(fname_lower.endswith(ext) for ext in allowed_ext):
+        # Also check content_type as fallback, but don't hard-reject if cv2 can decode
+        ctype = (file.content_type or "").lower()
+        if ctype not in ("image/jpeg", "image/png", "image/webp", "image/jpg", ""):
+            raise HTTPException(400, "file must be a JPEG, PNG, or WebP image")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "uploaded file is empty")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, f"file too large (max {MAX_UPLOAD_BYTES // (1024*1024)} MB)")
+
+    # Extract face embedding + detected sex from the upload (ephemeral)
+    info = _process_upload_bytes(data)
+    has_face = bool(info.get("has_face") and info.get("embedding") is not None)
+    embedding = info.get("embedding") if has_face else None
+    detected_sex = info.get("detected_sex") or ""
+
+    query_rec: dict = {
+        "name": (name or "").strip(),
+        "sex": sex_norm,
+        "detected_sex": detected_sex,
+        # other scoring fields absent -> neutral 0.5 in dvi.scoring
+    }
+
+    result = retrieval.search_transient(
+        query_rec, embedding, candidate_type=candidate_type, query_type=query_type, top_k=top_k
+    )
+
+    candidate_records = retrieval.load_records(candidate_type)
+    candidates = []
+    for c in result["candidates"]:
+        cand_id = c["candidate_record_id"]
+        rec = candidate_records.get(cand_id)
+        if rec is None:
+            continue
+        candidates.append({
+            "rank": c["rank"],
+            f"{candidate_type}_record_id": cand_id,
+            **_candidate_row(rec),
+            "face_score": c["face_score"],
+            "metadata_score": c["metadata_score"],
+            "final_score": c["final_score"],
+            "am_metadata_vision_conflict": c["am_metadata_vision_conflict"],
+            "pm_metadata_vision_conflict": c["pm_metadata_vision_conflict"],
+            "pair_metadata_conflict": c["pair_metadata_conflict"],
+            "pair_vision_conflict": c["pair_vision_conflict"],
+        })
+
+    return {
+        "query": {
+            "provided_name": (name or "").strip() or None,
+            "provided_sex": sex_norm or None,
+            "detected_sex": detected_sex or None,
+            "has_face": has_face,
+            "quality_band": info.get("quality_band"),
+            "failure_reason": info.get("failure_reason") or None,
+            "detector_score": info.get("detector_score"),
+        },
+        "candidate_type": candidate_type,
+        "query_type": query_type,
+        "source": result["candidate_source"],
+        "has_face": has_face,
+        "candidates": candidates,
+        "disclaimer": RANKING_DISCLAIMER,
+    }
 
 
 class ReviewPayload(BaseModel):
